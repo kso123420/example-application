@@ -1,49 +1,26 @@
-name: Build
+name: Build Firmware
 
 on:
   push:
+    branches: [ main ]
   pull_request:
-  schedule:
-    - cron: "0 0 * * *"
+    branches: [ main ]
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, macos-13, macos-14, windows-2022]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          path: example-application
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-
-      - name: Setup Zephyr project
-        uses: zephyrproject-rtos/action-zephyr-setup@v1
-        with:
-          app-path: example-application
-          toolchains: arm-zephyr-eabi
-
+      - uses: actions/checkout@v2
+      - name: Set up Zephyr environment
+        run: |
+          west init -l .
+          west update
+          pip install -r zephyr/scripts/requirements.txt
       - name: Build firmware
-        working-directory: example-application
-        shell: bash
         run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            EXTRA_TWISTER_FLAGS="--short-build-path -O/tmp/twister-out"
-          fi
-          west twister -T app -v --inline-logs --integration $EXTRA_TWISTER_FLAGS
-
-      - name: Twister Tests
-        working-directory: example-application
-        shell: bash
-        run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            EXTRA_TWISTER_FLAGS="--short-build-path -O/tmp/twister-out"
-          fi
-          west twister -T tests -v --inline-logs --integration $EXTRA_TWISTER_FLAGS
+          west build -b nice_nano_v2
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: firmware
+          path: build/zephyr/zephyr.uf2
