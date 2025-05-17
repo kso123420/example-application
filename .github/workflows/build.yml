@@ -5,22 +5,32 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:  # 👈 allows manual trigger
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Set up Zephyr environment
+      - uses: actions/checkout@v3
+
+      - name: Install Python and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gperf ccache dfu-util device-tree-compiler wget python3-pip
+          pip3 install west
+
+      - name: Set up Zephyr
         run: |
           west init -l .
           west update
-          pip install -r zephyr/scripts/requirements.txt
+          pip3 install -r zephyr/scripts/requirements.txt
+
       - name: Build firmware
         run: |
           west build -b nice_nano_v2
-      - name: Upload artifact
-        uses: actions/upload-artifact@v2
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v3
         with:
-          name: firmware
+          name: zephyr.uf2
           path: build/zephyr/zephyr.uf2
