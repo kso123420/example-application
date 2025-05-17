@@ -1,80 +1,51 @@
-/*
- * Copyright (c) 2021 Nordic Semiconductor ASA
- * SPDX-License-Identifier: Apache-2.0
- */
-
 #include <zephyr/kernel.h>
-#include <zephyr/drivers/sensor.h>
-#include <zephyr/logging/log.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/spi.h>
+#include <zephyr/usb/class/hid.h>
+#include <zephyr/usb/usb_device.h>
 
-#include <app/drivers/blink.h>
+#define PMW3360_REG_PID 0x00
+#define SPI_NODE DT_NODELABEL(spi1)
 
-#include <app_version.h>
+static const struct device *spi_dev;
+static const struct spi_cs_control cs_ctrl = {
+    .gpio = SPI_CS_GPIOS_DT_SPEC_GET(DT_NODELABEL(pmw3360)),
+    .delay = 0,
+};
 
-LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
+static const struct spi_config spi_cfg = {
+    .frequency = 2000000,
+    .operation = SPI_WORD_SET(8) | SPI_TRANSFER_MSB,
+    .cs = &cs_ctrl,
+};
 
-#define BLINK_PERIOD_MS_STEP 100U
-#define BLINK_PERIOD_MS_MAX  1000U
+uint8_t pmw3360_read(uint8_t reg) {
+    uint8_t tx_buf[2] = {reg & 0x7F, 0};
+    uint8_t rx_buf[2];
 
-int main(void)
-{
-	int ret;
-	unsigned int period_ms = BLINK_PERIOD_MS_MAX;
-	const struct device *sensor, *blink;
-	struct sensor_value last_val = { 0 }, val;
+    const struct spi_buf tx_bufs[] = {
+        { .buf = tx_buf, .len = 2 }
+    };
+    const struct spi_buf rx_bufs[] = {
+        { .buf = rx_buf, .len = 2 }
+    };
 
-	printk("Zephyr Example Application %s\n", APP_VERSION_STRING);
-
-	sensor = DEVICE_DT_GET(DT_NODELABEL(example_sensor));
-	if (!device_is_ready(sensor)) {
-		LOG_ERR("Sensor not ready");
-		return 0;
-	}
-
-	blink = DEVICE_DT_GET(DT_NODELABEL(blink_led));
-	if (!device_is_ready(blink)) {
-		LOG_ERR("Blink LED not ready");
-		return 0;
-	}
-
-	ret = blink_off(blink);
-	if (ret < 0) {
-		LOG_ERR("Could not turn off LED (%d)", ret);
-		return 0;
-	}
-
-	printk("Use the sensor to change LED blinking period\n");
-
-	while (1) {
-		ret = sensor_sample_fetch(sensor);
-		if (ret < 0) {
-			LOG_ERR("Could not fetch sample (%d)", ret);
-			return 0;
-		}
-
-		ret = sensor_channel_get(sensor, SENSOR_CHAN_PROX, &val);
-		if (ret < 0) {
-			LOG_ERR("Could not get sample (%d)", ret);
-			return 0;
-		}
-
-		if ((last_val.val1 == 0) && (val.val1 == 1)) {
-			if (period_ms == 0U) {
-				period_ms = BLINK_PERIOD_MS_MAX;
-			} else {
-				period_ms -= BLINK_PERIOD_MS_STEP;
-			}
-
-			printk("Proximity detected, setting LED period to %u ms\n",
-			       period_ms);
-			blink_set_period_ms(blink, period_ms);
-		}
-
-		last_val = val;
-
-		k_sleep(K_MSEC(100));
-	}
-
-	return 0;
+    spi_transceive(spi_dev, &spi_cfg, tx_bufs, rx_bufs);
+    return rx_buf[1];
 }
 
+void main(void) {
+    usb_enable(NULL);
+    spi_dev = DEVICE_DT_GET(SPI_NODE);
+    if (!device_is_ready(spi_dev)) {
+        printk("SPI device not ready\n");
+        return;
+    }
+
+    printk("Testing PMW3360...\n");
+    while (1) {
+        uint8_t pid = pmw3360_read(PMW3360_REG_PID);
+        printk("Product ID: 0x%02X\n", pid);
+        k_sleep(K_MSEC(1000));
+    }
+}
